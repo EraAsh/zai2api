@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.db.session import engine, Base
 from app.workers.refresh_task import start_scheduler, scheduler
 from app.api.v1 import chat, admin
+from app.services.zai_client import ZaiClient
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +26,7 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down...")
+    await ZaiClient.close_client()
     scheduler.shutdown()
 
 app = FastAPI(

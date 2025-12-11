@@ -144,11 +144,12 @@ class ZaiClient:
         try:
             async with client.stream("POST", url, json=payload, headers=self.headers) as response:
                 if response.status_code != 200:
-                    error_text = await response.aread()
+                    error_bytes = await response.aread()
+                    error_text = error_bytes.decode('utf-8', errors='ignore')
                     logger.error(f"Zai API Error: {response.status_code} - {error_text}")
                     if response.status_code == 401:
                             raise ZaiAuthError("401 Unauthorized")
-                    raise ZaiAPIError(response.status_code, str(error_text))
+                    raise ZaiAPIError(response.status_code, error_text)
 
                 async for line in response.aiter_lines():
                         if not line:
