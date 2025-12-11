@@ -1,4 +1,4 @@
-# Zai.is API Gateway - System Design Document (v1)
+# zai.is2api - System Design Document (v1)
 
 ## 1. 系统架构概览 (System Architecture)
 
@@ -101,7 +101,7 @@ graph TD
 ## 5. 目录结构 (Directory Structure)
 
 ```text
-zai-gateway/
+zai.is2api/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py              # FastAPI 应用入口，路由注册
@@ -126,6 +126,7 @@ zai-gateway/
 │   └── zai_token.py         # [现有资源] Discord 登录脚本
 ├── data/                    # 挂载目录
 │   └── zai_gateway.db       # SQLite 数据库文件
+├── plans/                   # 设计文档
 ├── .env.example
 ├── docker-compose.yml
 ├── Dockerfile

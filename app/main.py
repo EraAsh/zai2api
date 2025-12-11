@@ -1,0 +1,41 @@
+import logging
+from fastapi import FastAPI
+from contextlib import asynccontextmanager
+
+from app.core.config import settings
+from app.db.session import engine, Base
+from app.workers.refresh_task import start_scheduler, scheduler
+from app.api.v1 import chat, admin
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info("Creating database tables...")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    logger.info("Starting background tasks...")
+    start_scheduler()
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down...")
+    scheduler.shutdown()
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    lifespan=lifespan
+)
+
+app.include_router(chat.router, prefix=settings.API_V1_STR, tags=["chat"])
+app.include_router(admin.router, prefix=settings.API_V1_STR, tags=["admin"])
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}

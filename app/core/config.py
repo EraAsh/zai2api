@@ -1,9 +1,7 @@
-from typing import List, Union
-from pydantic import AnyHttpUrl, validator
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Zai.is API Gateway"
+    PROJECT_NAME: str = "zai.is2api"
     API_V1_STR: str = "/v1"
     
     # Database

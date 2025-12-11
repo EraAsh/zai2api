@@ -11,8 +11,19 @@ import json
 import argparse
 import requests
 import re
+import logging
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse, parse_qs
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 class DiscordOAuthHandler:
     """Discord OAuth 登录处理器"""
@@ -54,12 +65,12 @@ class DiscordOAuthHandler:
         if not discord_token or len(discord_token) < 20:
              return {'error': '无效的 Discord Token'}
 
-        print("\n[*] 开始后端 OAuth 登录流程...")
-        print(f"[*] Discord Token: {discord_token[:20]}...{discord_token[-10:]}")
+        logger.info("[*] 开始后端 OAuth 登录流程...")
+        logger.info(f"[*] Discord Token: {discord_token[:20]}...{discord_token[-10:]}")
         
         try:
             # Step 1: 访问 OAuth 登录入口，获取 Discord 授权 URL
-            print("[1/5] 获取 Discord 授权 URL...")
+            logger.info("[1/5] 获取 Discord 授权 URL...")
             oauth_info = self._get_discord_authorize_url()
             if 'error' in oauth_info:
                 return oauth_info
@@ -70,12 +81,12 @@ class DiscordOAuthHandler:
             state = oauth_info.get('state', '')
             scope = oauth_info.get('scope', 'identify email')
             
-            print(f"    Client ID: {client_id}")
-            print(f"    Redirect URI: {redirect_uri}")
-            print(f"    Scope: {scope}")
+            logger.info(f"    Client ID: {client_id}")
+            logger.info(f"    Redirect URI: {redirect_uri}")
+            logger.info(f"    Scope: {scope}")
             
             # Step 2: 使用 Discord token 授权应用
-            print("[2/5] 授权应用...")
+            logger.info("[2/5] 授权应用...")
             auth_result = self._authorize_discord_app(
                 discord_token, client_id, redirect_uri, scope, state
             )
@@ -83,19 +94,23 @@ class DiscordOAuthHandler:
                 return auth_result
             
             callback_url = auth_result['callback_url']
-            print(f"    获取到回调 URL")
+            logger.info(f"    获取到回调 URL")
             
             # Step 3: 访问回调 URL 获取 token
-            print("[3/5] 处理 OAuth 回调...")
+            logger.info("[3/5] 处理 OAuth 回调...")
             token_result = self._handle_oauth_callback(callback_url)
             if 'error' in token_result:
                 return token_result
             
-            print(f"[4/5] 成功获取 JWT Token!")
+            logger.info(f"[4/5] 成功获取 JWT Token!")
             
             return token_result
             
+        except requests.exceptions.RequestException as e:
+            logger.error(f"登录网络请求出错: {str(e)}")
+            return {'error': f'登录网络请求出错: {str(e)}'}
         except Exception as e:
+            logger.error(f"登录过程出错: {str(e)}")
             return {'error': f'登录过程出错: {str(e)}'}
     
     def _get_discord_authorize_url(self) -> Dict[str, Any]:
@@ -119,6 +134,8 @@ class DiscordOAuthHandler:
                         'state': params.get('state', [''])[0]
                     }
             return {'error': f'无法获取授权 URL，状态码: {response.status_code}'}
+        except requests.exceptions.RequestException as e:
+            return {'error': f'获取授权 URL 失败 (网络错误): {str(e)}'}
         except Exception as e:
             return {'error': f'获取授权 URL 失败: {str(e)}'}
     
@@ -171,30 +188,32 @@ class DiscordOAuthHandler:
                         if location.startswith('/'):
                             location = f"{self.base_url}{location}"
                         return {'callback_url': location}
-                except:
+                except json.JSONDecodeError:
                     pass
             
             return {'error': f'授权失败 (状态码: {response.status_code})'}
             
+        except requests.exceptions.RequestException as e:
+            return {'error': f'授权过程出错 (网络错误): {str(e)}'}
         except Exception as e:
             return {'error': f'授权过程出错: {str(e)}'}
     
     def _handle_oauth_callback(self, callback_url: str) -> Dict[str, Any]:
         """处理 OAuth 回调，获取 JWT token"""
         try:
-            print(f"    回调 URL: {callback_url[:80]}...")
+            logger.info(f"    回调 URL: {callback_url[:80]}...")
             
             response = self.session.get(callback_url, allow_redirects=False)
             
             max_redirects = 10
             for i in range(max_redirects):
-                print(f"    重定向 {i+1}: 状态码 {response.status_code}")
+                logger.info(f"    重定向 {i+1}: 状态码 {response.status_code}")
                 
                 if response.status_code not in [301, 302, 303, 307, 308]:
                     break
                 
                 location = response.headers.get('Location', '')
-                print(f"    Location: {location[:100]}...")
+                logger.info(f"    Location: {location[:100]}...")
                 
                 # Check for token in URL
                 token = self._extract_token(location)
@@ -207,17 +226,17 @@ class DiscordOAuthHandler:
             
             # Final check in URL
             final_url = response.url if hasattr(response, 'url') else ''
-            print(f"    最终 URL: {final_url}")
-            print(f"    最终状态码: {response.status_code}")
+            logger.info(f"    最终 URL: {final_url}")
+            logger.info(f"    最终状态码: {response.status_code}")
             
             token = self._extract_token(final_url)
             if token: return {'token': token}
             
             # Check Cookies
-            print(f"    检查 Cookies...")
+            logger.info(f"    检查 Cookies...")
             has_session = False
             for cookie in self.session.cookies:
-                print(f"      {cookie.name}: {str(cookie.value)[:50]}...")
+                logger.debug(f"      {cookie.name}: {str(cookie.value)[:50]}...")
                 if cookie.name == 'token':
                     return {'token': cookie.value}
                 if any(x in cookie.name.lower() for x in ['session', 'auth', 'id', 'user']):
@@ -225,14 +244,16 @@ class DiscordOAuthHandler:
             
             # Session Fallback
             if has_session:
-                print(f"    [!] 尝试 Session 验证...")
+                logger.info(f"    [!] 尝试 Session 验证...")
                 user_info = self._verify_session()
                 if user_info and not user_info.get('error'):
-                    print(f"    [+] Session 验证成功！用户: {user_info.get('name', 'Unknown')}")
+                    logger.info(f"    [+] Session 验证成功！用户: {user_info.get('name', 'Unknown')}")
                     return {'token': 'SESSION_AUTH', 'user_info': user_info}
 
             return {'error': '未能从回调中获取 token'}
             
+        except requests.exceptions.RequestException as e:
+             return {'error': f'处理回调失败 (网络错误): {str(e)}'}
         except Exception as e:
             return {'error': f'处理回调失败: {str(e)}'}
 
@@ -249,7 +270,8 @@ class DiscordOAuthHandler:
         try:
             resp = self.session.get(f"{self.base_url}/api/v1/auths/", headers={'Accept': 'application/json'})
             if resp.status_code == 200: return resp.json()
-        except: pass
+        except requests.exceptions.RequestException: pass
+        except Exception: pass
         return None
 
 def main():
@@ -268,19 +290,19 @@ def main():
         result = handler.backend_login(args.discord_token)
         
         if 'error' in result:
-            print(f"\n[!] 登录失败: {result['error']}")
+            logger.error(f"\n[!] 登录失败: {result['error']}")
         else:
-            print(f"\n[+] 登录成功!\n")
+            logger.info(f"\n[+] 登录成功!\n")
             
             token = result.get('token')
             if token == 'SESSION_AUTH':
                 # Try to extract a real token from user_info if present, else just show a message
                 user_info = result.get('user_info', {})
-                print(f"\n[Session Cookie Authentication Active]")
-                print(f"User: {user_info.get('name')} ({user_info.get('email')})")
-                print(f"ID: {user_info.get('id')}")
+                logger.info(f"\n[Session Cookie Authentication Active]")
+                logger.info(f"User: {user_info.get('name')} ({user_info.get('email')})")
+                logger.info(f"ID: {user_info.get('id')}")
             else:
-                print(f"\n{token}\n")
+                logger.info(f"\n{token}\n")
 
 if __name__ == '__main__':
     main()
