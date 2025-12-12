@@ -2,21 +2,22 @@
 
 Zai2API 是一个功能完整的 OpenAI 兼容 API 服务网关。它允许你管理 Discord Token，自动将其转换为 zai.is 的访问凭证，并提供标准的 OpenAI 接口供第三方客户端调用。
 
-## ✨ 功能特性
+## 功能特性
 
 *   **多 Token 管理**：支持批量添加、删除、禁用 Discord Token。
-*   **自动保活**：后台调度器自动检测并刷新过期的 Zai Token，确保服务高可用。
-*   **OpenAI 兼容**：提供 `/v1/chat/completions` 和 `/v1/models` 接口，可直接接入 NextChat, One API 等客户端。
+*   **自动保活**：后台调度器自动检测并刷新过期的 Zai Token。
+*   **OpenAI 兼容**：提供 `/v1/chat/completions` 和 `/v1/models` 接口。
 *   **负载均衡**：API 请求会自动轮询使用当前活跃的 Token。
 *   **WebUI 面板**：
-    *   **Token 列表**：实时查看 Token 状态、剩余有效期、余额类型。
+    *   **Token 列表**：实时查看 Token 状态、剩余有效期。
     *   **系统配置**：修改管理员密码、API Key、代理设置、错误重试策略等。
     *   **请求日志**：详细记录 API 调用的耗时、状态码和使用的 Token。
 *   **Docker 部署**：提供 Dockerfile 和 docker-compose.yml，一键部署。
 
-## 🚀 快速开始
+## 快速开始
 
 ### 获取discord token
+
 随便在一个群组中发消息，复制其中的Authorization作为discord token
 ![获取discord token](png/获取doscordtoken.png)
 
@@ -25,6 +26,10 @@ Zai2API 是一个功能完整的 OpenAI 兼容 API 服务网关。它允许你�
 1.  克隆或下载本项目代码。
 2.  确保已安装 Docker 和 Docker Compose。
 3.  在项目根目录下运行：
+
+```bash
+git clone  https://github.com/Futureppo/zai.is2api.git && cd zai.is2api
+```
 
 ```bash
 docker-compose up -d
@@ -47,17 +52,11 @@ pip install -r requirements.txt
 python app.py
 ```
 
-## ⚙️ 配置说明
+## 配置说明
 
-### 默认账户
-*   **管理后台地址**: `http://localhost:5000`
-*   **默认用户名**: `admin`
-*   **默认密码**: `admin`
-*   **默认 API Key**: `sk-default-key`
 
-*请首次登录后务必在“系统配置”中修改密码和 API Key。*
 
-### 环境变量 (Docker)
+### 环境变量
 
 | 变量名 | 默认值 | 说明 |
 | :--- | :--- | :--- |
@@ -65,9 +64,9 @@ python app.py
 | `SECRET_KEY` | `your-secret-key...` | Flask Session 密钥，建议修改 |
 | `TZ` | `Asia/Shanghai` | 容器时区 |
 
-## 🔌 API 调用
+## API 调用
 
-### 聊天补全 (Chat Completions)
+### 聊天
 
 **Endpoint**: `http://localhost:5000/v1/chat/completions`
 
