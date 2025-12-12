@@ -141,12 +141,12 @@ class ZaiClient:
             response = await client.get(url, headers=self.headers)
             if response.status_code == 200:
                 data = response.json()
-                # data is expected to be a list of model objects or {models: [...]}
-                # Based on user feedback: response is a JSON list directly or similar structure?
-                # Let's assume list for now or check if it's wrapped.
-                if isinstance(data, list):
+                # User feedback shows response structure: {"data": [...]}
+                if isinstance(data, dict):
+                    return data.get("data", [])
+                elif isinstance(data, list):
                     return data
-                return data.get("models", [])
+                return []
             elif response.status_code == 401:
                 raise ZaiAuthError("401 Unauthorized")
             else:
