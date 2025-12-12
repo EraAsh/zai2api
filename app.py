@@ -239,6 +239,16 @@ def delete_token(id):
     db.session.commit()
     return jsonify({'success': True})
 
+@app.route('/api/tokens/refresh-all', methods=['POST'])
+@api_auth_required
+def refresh_all_tokens_endpoint():
+    try:
+        services.refresh_all_tokens(force=True)
+        return jsonify({'success': True, 'message': '所有 Token 刷新请求已发送'})
+    except Exception as e:
+        logger.error(f"Manual refresh failed: {e}")
+        return jsonify({'success': False, 'message': str(e)})
+
 @app.route('/api/tokens/<int:id>/refresh-at', methods=['POST'])
 @api_auth_required
 def refresh_token_at(id):
@@ -312,6 +322,39 @@ def admin_config():
         
         db.session.commit()
         return jsonify({'success': True})
+
+@app.route('/api/admin/apikey', methods=['POST'])
+@api_auth_required
+def update_apikey():
+    data = request.json
+    new_key = data.get('new_api_key')
+    if not new_key:
+        return jsonify({'success': False, 'detail': 'API Key 不能为空'}), 400
+        
+    config = SystemConfig.query.first()
+    config.api_key = new_key
+    db.session.commit()
+    return jsonify({'success': True})
+
+@app.route('/api/admin/password', methods=['POST'])
+@api_auth_required
+def update_password():
+    data = request.json
+    username = data.get('username')
+    old_password = data.get('old_password')
+    new_password = data.get('new_password')
+    
+    config = SystemConfig.query.first()
+    
+    # Verify old password
+    if config.admin_username != username or not check_password_hash(config.admin_password_hash, old_password):
+        return jsonify({'success': False, 'detail': '旧密码错误'}), 400
+        
+    config.admin_password_hash = generate_password_hash(new_password)
+    if username:
+        config.admin_username = username
+    db.session.commit()
+    return jsonify({'success': True})
 
 @app.route('/api/admin/debug', methods=['POST'])
 @api_auth_required
