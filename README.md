@@ -16,6 +16,10 @@ Zai2API 是一个功能完整的 OpenAI 兼容 API 服务网关。它允许你�
 
 ## 🚀 快速开始
 
+### 获取discord token
+随便在一个群组中发消息，复制其中的Authorization作为discord token
+![获取discord token](png/获取doscordtoken.png)
+
 ### 方式一：Docker Compose 部署（推荐）
 
 1.  克隆或下载本项目代码。
@@ -95,9 +99,8 @@ curl http://localhost:5000/v1/chat/completions \
     *   调整“错误封禁阈值”和“错误重试次数”以优化稳定性。
     *   调整 Token 刷新间隔。
 3.  **请求日志**：
-    *   查看最近的 API 请求记录，便于排查问题。
+    *   查看最近的 API 请求记录。
 
 ## ⚠️ 免责声明
 
 本项目仅供学习和研究使用。使用者应自行承担使用本工具产生的所有风险和责任。请遵守相关服务条款。
-

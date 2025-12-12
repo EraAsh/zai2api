@@ -44,6 +44,10 @@
                     <div class="text-sm text-muted-foreground">Token 总数</div>
                     <div class="text-2xl font-bold" id="stat-total-tokens">-</div>
                 </div>
+                <div class="p-4 border rounded-lg bg-card">
+                    <div class="text-sm text-muted-foreground">活跃 Token</div>
+                    <div class="text-2xl font-bold" id="stat-active-tokens">-</div>
+                </div>
             </div>
 
             <!-- Toolbar -->
@@ -51,14 +55,14 @@
                 <button onclick="openAddTokenModal()" class="inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground h-9 px-4 text-sm font-medium hover:bg-primary/90">
                     <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
                     新增 Token
-                </button>
+                        </button>
                 <button onclick="refreshAllZaiTokens()" class="inline-flex items-center justify-center rounded-md bg-secondary text-secondary-foreground h-9 px-4 text-sm font-medium hover:bg-secondary/80">
                     一键刷新 ZaiToken
-                </button>
+                        </button>
                 <button onclick="loadTokens()" class="inline-flex items-center justify-center rounded-md border border-input bg-background h-9 px-4 text-sm font-medium hover:bg-accent hover:text-accent-foreground">
                     刷新
-                </button>
-            </div>
+                        </button>
+                </div>
                 
             <!-- Table -->
             <div class="rounded-md border border-border overflow-hidden">
@@ -144,6 +148,19 @@
                     <input id="cfg-refresh-interval" type="number" placeholder="默认 3600" class="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm">
                 </div>
                 <button onclick="saveDebugConfig()" class="w-full h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90">保存配置</button>
+            </div>
+
+            <!-- Stream Conversion -->
+            <div class="p-6 border rounded-lg bg-card space-y-4">
+                <h3 class="font-semibold text-lg">流式转换配置</h3>
+                <div class="flex items-center justify-between">
+                    <label class="text-sm font-medium">开启流式转换</label>
+                    <input id="cfg-stream-conversion-enabled" type="checkbox" class="h-4 w-4 rounded border-gray-300">
+                </div>
+                <div class="text-xs text-muted-foreground leading-5">
+                    zai.is 强制要求以 <span class="font-mono">stream=true</span> 调用。开启后：当客户端发来非流式请求时，本服务会自动转为流式请求并聚合为非流式响应返回。
+                </div>
+                <button onclick="saveStreamConversion()" class="w-full h-9 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90">保存配置</button>
             </div>
         </div>
 
@@ -248,6 +265,7 @@
             const stats = await api.get('/api/stats');
             
             document.getElementById('stat-total-tokens').textContent = stats.total_tokens || 0;
+            document.getElementById('stat-active-tokens').textContent = stats.active_tokens || 0;
 
             const tbody = document.getElementById('tokens-table-body');
             tbody.innerHTML = data.map(t => {
@@ -342,6 +360,8 @@
             document.getElementById('cfg-error-retry').value = cfg.error_retry_count || 3;
             document.getElementById('cfg-debug-enabled').checked = cfg.debug_enabled || false;
             document.getElementById('cfg-refresh-interval').value = cfg.token_refresh_interval || 3600;
+            const streamEl = document.getElementById('cfg-stream-conversion-enabled');
+            if (streamEl) streamEl.checked = cfg.stream_conversion_enabled || false;
         }
 
         async function updatePassword() {
@@ -363,21 +383,36 @@
             const new_api_key = document.getElementById('cfg-new-apikey').value;
             if (!new_api_key) return alert('请输入新 API Key');
             const res = await api.post('/api/admin/apikey', { new_api_key });
-            if (res.success) loadSettings();
+            if (res.success) {
+                alert('API Key 已更新');
+                document.getElementById('cfg-new-apikey').value = '';
+                loadSettings();
+            } else {
+                alert(res.detail || res.message || '更新失败');
+            }
         }
 
         async function saveErrorConfig() {
             const error_ban_threshold = parseInt(document.getElementById('cfg-error-ban').value);
             const error_retry_count = parseInt(document.getElementById('cfg-error-retry').value);
-            await api.post('/api/admin/config', { error_ban_threshold, error_retry_count });
-            alert('保存成功');
+            const res = await api.post('/api/admin/config', { error_ban_threshold, error_retry_count });
+            if (res && res.success) alert('保存成功');
+            else alert(res.detail || res.message || '保存失败');
         }
 
         async function saveDebugConfig() {
             const enabled = document.getElementById('cfg-debug-enabled').checked;
             const token_refresh_interval = parseInt(document.getElementById('cfg-refresh-interval').value);
-            await api.post('/api/admin/debug', { enabled, token_refresh_interval });
-            alert('保存成功');
+            const res = await api.post('/api/admin/debug', { enabled, token_refresh_interval });
+            if (res && res.success) alert('保存成功');
+            else alert(res.detail || res.message || '保存失败');
+        }
+
+        async function saveStreamConversion() {
+            const enabled = document.getElementById('cfg-stream-conversion-enabled').checked;
+            const res = await api.post('/api/admin/config', { stream_conversion_enabled: enabled });
+            if (res && res.success) alert('保存成功');
+            else alert(res.detail || res.message || '保存失败');
         }
 
         // Logs
@@ -386,10 +421,10 @@
             const tbody = document.getElementById('logs-table-body');
             tbody.innerHTML = logs.map(l => `
                 <tr>
-                    <td class="px-4 py-2 font-mono text-xs max-w-[150px] truncate" title="${l.token_email || '-'}">${l.token_email || '-'}</td>
-                    <td class="px-4 py-2 text-xs text-muted-foreground">-</td>
+                    <td class="px-4 py-2 font-mono text-xs max-w-[180px] truncate" title="${l.discord_token || '-'}">${l.discord_token || '-'}</td>
+                    <td class="px-4 py-2 font-mono text-xs max-w-[180px] truncate text-muted-foreground" title="${l.zai_token || '-'}">${l.zai_token || '-'}</td>
                     <td class="px-4 py-2"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs ${l.status_code == 200 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${l.status_code}</span></td>
-                    <td class="px-4 py-2 text-xs">${l.duration.toFixed(2)}</td>
+                    <td class="px-4 py-2 text-xs">${(l.duration ?? 0).toFixed(2)}</td>
                     <td class="px-4 py-2 text-xs text-muted-foreground">${new Date(l.created_at).toLocaleString()}</td>
                 </tr>
             `).join('');

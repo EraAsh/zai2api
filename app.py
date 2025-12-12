@@ -3,7 +3,9 @@ import time
 import logging
 import json
 import hashlib
+import sqlite3
 from datetime import datetime
+from threading import Lock
 from flask import Flask, request, jsonify, render_template, send_from_directory, Response, stream_with_context
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -16,6 +18,8 @@ import services
 
 # Initialize App
 app = Flask(__name__, static_folder='static', template_folder='static')
+# NOTE: Flask-SQLAlchemy 会将相对 sqlite 路径自动解析到 app.instance_path 下；
+# 默认使用 sqlite:///zai2api.db 即会落到 ./instance/zai2api.db（与仓库结构一致）。
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URI', 'sqlite:///zai2api.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-change-me')
@@ -45,20 +49,100 @@ def load_user(user_id):
         return User(id=str(config.id), username=config.admin_username)
     return None
 
+# --- SQLite schema migration (lightweight, no Alembic) ---
+
+def _sqlite_path_from_uri(uri: str) -> str | None:
+    if not uri:
+        return None
+    if uri.startswith('sqlite:///:memory:'):
+        return None
+    if uri.startswith('sqlite:///'):
+        # Works for both relative (sqlite:///instance/db.sqlite) and absolute (sqlite:////app/instance/db.sqlite)
+        return uri[len('sqlite:///'):]
+    return None
+
+def _sqlite_table_columns(cursor, table_name: str) -> set[str]:
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    return {row[1] for row in cursor.fetchall()}
+
+def migrate_sqlite_schema():
+    # Prefer the *resolved* sqlite file path used by Flask-SQLAlchemy (usually under app.instance_path).
+    path = None
+    try:
+        engine = db.engine  # requires app_context
+        if getattr(engine.url, 'drivername', None) == 'sqlite':
+            path = engine.url.database
+    except Exception:
+        path = None
+
+    if not path:
+        uri = app.config.get('SQLALCHEMY_DATABASE_URI')
+        path = _sqlite_path_from_uri(uri)
+    if not path:
+        return
+
+    # Ensure directory exists for relative sqlite paths
+    dir_name = os.path.dirname(path)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
+
+    conn = sqlite3.connect(path)
+    cur = conn.cursor()
+    try:
+        # system_config: add missing columns safely
+        sc_cols = _sqlite_table_columns(cur, 'system_config')
+        if sc_cols:
+            if 'error_retry_count' not in sc_cols:
+                cur.execute("ALTER TABLE system_config ADD COLUMN error_retry_count INTEGER DEFAULT 3")
+            if 'token_refresh_interval' not in sc_cols:
+                cur.execute("ALTER TABLE system_config ADD COLUMN token_refresh_interval INTEGER DEFAULT 3600")
+            if 'stream_conversion_enabled' not in sc_cols:
+                cur.execute("ALTER TABLE system_config ADD COLUMN stream_conversion_enabled BOOLEAN DEFAULT 0")
+
+        # request_log: add missing columns for UI display
+        rl_cols = _sqlite_table_columns(cur, 'request_log')
+        if rl_cols:
+            if 'discord_token' not in rl_cols:
+                cur.execute("ALTER TABLE request_log ADD COLUMN discord_token TEXT")
+            if 'zai_token' not in rl_cols:
+                cur.execute("ALTER TABLE request_log ADD COLUMN zai_token TEXT")
+
+        conn.commit()
+    finally:
+        conn.close()
+
+def _mask_token(value: str | None, head: int = 12, tail: int = 6) -> str | None:
+    if not value:
+        return None
+    if len(value) <= head + tail:
+        return value
+    return f"{value[:head]}...{value[-tail:]}"
+
 # Database Initialization
 def init_db():
     with app.app_context():
         db.create_all()
-        if not SystemConfig.query.first():
+        # Make sure old sqlite DBs get new columns before ORM queries start
+        migrate_sqlite_schema()
+        db.create_all()
+        config = SystemConfig.query.first()
+        if not config:
             # Default Admin: admin / admin
             # Use pbkdf2:sha256 which is default in generate_password_hash
-            default_config = SystemConfig(
+            config = SystemConfig(
                 admin_username='admin',
                 admin_password_hash=generate_password_hash('admin')
             )
-            db.session.add(default_config)
+            db.session.add(config)
             db.session.commit()
             print("Initialized default admin/admin")
+
+        # Ensure scheduler interval reflects persisted config (survives restart)
+        try:
+            seconds = int(getattr(config, 'token_refresh_interval', 3600) or 3600)
+            scheduler.reschedule_job('token_refresher', trigger='interval', seconds=seconds)
+        except Exception as e:
+            logger.error(f"Failed to apply token_refresh_interval on startup: {e}")
 
 # Scheduler
 def scheduled_refresh():
@@ -313,12 +397,14 @@ def admin_config():
             'admin_username': config.admin_username,
             'api_key': config.api_key,
             'debug_enabled': config.debug_enabled,
-            'token_refresh_interval': config.token_refresh_interval
+            'token_refresh_interval': config.token_refresh_interval,
+            'stream_conversion_enabled': getattr(config, 'stream_conversion_enabled', False)
         })
     else:
         data = request.json
         if 'error_ban_threshold' in data: config.error_ban_threshold = data['error_ban_threshold']
         if 'error_retry_count' in data: config.error_retry_count = data['error_retry_count']
+        if 'stream_conversion_enabled' in data: config.stream_conversion_enabled = bool(data['stream_conversion_enabled'])
         
         db.session.commit()
         return jsonify({'success': True})
@@ -396,6 +482,8 @@ def get_logs():
     return jsonify([{
         'operation': l.operation,
         'token_email': l.token_email,
+        'discord_token': getattr(l, 'discord_token', None),
+        'zai_token': getattr(l, 'zai_token', None),
         'status_code': l.status_code,
         'duration': l.duration,
         'created_at': l.created_at.isoformat()
@@ -535,15 +623,104 @@ def activate_sora2(id):
 
 # --- OpenAI Compatible Proxy ---
 
-def select_token():
-    # Simple Round Robin or Random
-    # For now, just pick the first active one that has AT
-    import random
-    tokens = Token.query.filter_by(is_active=True).all()
-    valid_tokens = [t for t in tokens if t.zai_token and not t.zai_token.startswith('SESSION')]
+_rr_lock = Lock()
+_rr_index = 0
+
+def _get_token_candidates():
+    """多号轮询：每个请求从上一次的下一个 token 开始顺序尝试。"""
+    global _rr_index
+    tokens = Token.query.filter_by(is_active=True).order_by(Token.id.asc()).all()
+    valid_tokens = [t for t in tokens if t.zai_token and not str(t.zai_token).startswith('SESSION')]
     if not valid_tokens:
-        return None
-    return random.choice(valid_tokens)
+        return []
+    with _rr_lock:
+        start = _rr_index % len(valid_tokens)
+        _rr_index = (start + 1) % len(valid_tokens)
+    return valid_tokens[start:] + valid_tokens[:start]
+
+def _mark_token_error(token: Token, config: SystemConfig, reason: str):
+    token.error_count = int(token.error_count or 0) + 1
+    token.remark = (reason or '')[:250]
+    threshold = int(getattr(config, 'error_ban_threshold', 3) or 3)
+    if token.error_count >= threshold:
+        token.is_active = False
+        token.remark = f"Auto-banned due to errors: {(reason or '')[:200]}"
+    db.session.commit()
+
+def _mark_token_success(token: Token):
+    if token.error_count:
+        token.error_count = 0
+    db.session.commit()
+
+def _filter_stream_headers(hdrs):
+    out = {}
+    for k in ('Content-Type', 'Cache-Control'):
+        if k in hdrs:
+            out[k] = hdrs[k]
+    out.setdefault('Content-Type', 'text/event-stream')
+    return out
+
+def _aggregate_sse_to_nonstream(resp, fallback_model: str | None = None):
+    first_chunk = None
+    usage = None
+    role_by_index: dict[int, str] = {}
+    content_by_index: dict[int, list[str]] = {}
+    finish_by_index: dict[int, str] = {}
+
+    for line in resp.iter_lines(decode_unicode=True):
+        if not line:
+            continue
+        if not line.startswith('data:'):
+            continue
+        data = line[5:].strip()
+        if not data:
+            continue
+        if data == '[DONE]':
+            break
+        try:
+            chunk = json.loads(data)
+        except Exception:
+            continue
+        if first_chunk is None:
+            first_chunk = chunk
+        if isinstance(chunk, dict) and chunk.get('usage'):
+            usage = chunk.get('usage')
+        for choice in (chunk.get('choices') or []):
+            idx = int(choice.get('index', 0))
+            delta = choice.get('delta') or {}
+            if delta.get('role'):
+                role_by_index[idx] = delta['role']
+            if 'content' in delta and delta['content'] is not None:
+                content_by_index.setdefault(idx, []).append(delta['content'])
+            if choice.get('finish_reason') is not None:
+                finish_by_index[idx] = choice.get('finish_reason')
+
+    created = (first_chunk or {}).get('created') or int(time.time())
+    model = (first_chunk or {}).get('model') or fallback_model or 'unknown'
+    rid = (first_chunk or {}).get('id') or f"chatcmpl-{int(time.time()*1000)}"
+
+    indexes = sorted(content_by_index.keys()) if content_by_index else [0]
+    choices_out = []
+    for idx in indexes:
+        choices_out.append({
+            'index': idx,
+            'message': {
+                'role': role_by_index.get(idx, 'assistant'),
+                'content': ''.join(content_by_index.get(idx, []))
+            },
+            'finish_reason': finish_by_index.get(idx, 'stop')
+        })
+
+    out = {
+        'id': rid,
+        'object': 'chat.completion',
+        'created': created,
+        'model': model,
+        'choices': choices_out
+    }
+    if usage is not None:
+        out['usage'] = usage
+    return out
 
 @app.route('/v1/chat/completions', methods=['POST'])
 def proxy_chat_completions():
@@ -554,50 +731,87 @@ def proxy_chat_completions():
     auth_header = request.headers.get('Authorization')
     if not auth_header or not auth_header.startswith('Bearer ') or auth_header.split(' ')[1] != config.api_key:
          return jsonify({'error': 'Invalid API Key'}), 401
-         
-    token = select_token()
-    if not token:
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({'error': 'Invalid JSON body'}), 400
+
+    client_stream = bool(payload.get('stream'))
+    stream_conversion_enabled = bool(getattr(config, 'stream_conversion_enabled', False))
+    should_convert = (not client_stream) and stream_conversion_enabled
+    zai_stream = client_stream or should_convert
+
+    candidates = _get_token_candidates()
+    if not candidates:
         return jsonify({'error': 'No active tokens available'}), 503
-        
-    # Proxy to Zai
-    zai_url = "https://zai.is/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {token.zai_token}",
-        "Content-Type": "application/json"
-    }
-    
-    try:
-        resp = requests.post(zai_url, json=request.json, headers=headers, stream=True)
-        
-        # Log request
+
+    max_attempts = max(1, int(getattr(config, 'error_retry_count', 1) or 1))
+    attempts = 0
+    last_response = None
+
+    for token in candidates:
+        if attempts >= max_attempts:
+            break
+        attempts += 1
+
+        zai_url = "https://zai.is/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {token.zai_token}",
+            "Content-Type": "application/json"
+        }
+
+        zai_payload = dict(payload)
+        if zai_stream:
+            zai_payload['stream'] = True
+
+        try:
+            resp = requests.post(zai_url, json=zai_payload, headers=headers, stream=zai_stream, timeout=600)
+        except Exception as e:
+            _mark_token_error(token, config, f"Request error: {e}")
+            last_response = jsonify({'error': str(e)})
+            last_response.status_code = 502
+            continue
+
+        # Log request (UI 展示用，写入脱敏 token)
         duration = time.time() - start_time
         log = RequestLog(
             operation="chat/completions",
             token_email=token.email,
+            discord_token=_mask_token(token.discord_token),
+            zai_token=_mask_token(token.zai_token),
             status_code=resp.status_code,
             duration=duration
         )
         db.session.add(log)
         db.session.commit()
-        
+
         if resp.status_code >= 400:
-             # Handle errors, maybe ban token if too many
-             token.error_count += 1
-             if token.error_count >= config.error_ban_threshold:
-                 token.is_active = False
-                 token.remark = f"Auto-banned due to errors: {resp.text[:50]}"
-             db.session.commit()
-             return Response(resp.content, status=resp.status_code, mimetype='application/json')
-             
-        # Stream response
-        def generate():
-            for chunk in resp.iter_content(chunk_size=1024):
-                if chunk:
-                    yield chunk
-        return Response(generate(), headers=dict(resp.headers))
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+            try:
+                detail = resp.text
+            except Exception:
+                detail = ''
+            _mark_token_error(token, config, f"HTTP {resp.status_code}: {detail[:200]}")
+            last_response = Response(resp.content, status=resp.status_code, mimetype=resp.headers.get('Content-Type', 'application/json'))
+            continue
+
+        _mark_token_success(token)
+
+        if client_stream:
+            def generate():
+                for chunk in resp.iter_content(chunk_size=1024):
+                    if chunk:
+                        yield chunk
+            return Response(stream_with_context(generate()), status=resp.status_code, headers=_filter_stream_headers(resp.headers))
+
+        if should_convert:
+            aggregated = _aggregate_sse_to_nonstream(resp, fallback_model=payload.get('model'))
+            return jsonify(aggregated)
+
+        return Response(resp.content, status=resp.status_code, mimetype=resp.headers.get('Content-Type', 'application/json'))
+
+    if last_response is not None:
+        return last_response
+    return jsonify({'error': 'No active tokens available'}), 503
 
 @app.route('/v1/models', methods=['GET'])
 def proxy_models():
@@ -607,9 +821,11 @@ def proxy_models():
     auth_header = request.headers.get('Authorization')
     if not auth_header or not auth_header.startswith('Bearer ') or auth_header.split(' ')[1] != config.api_key:
          return jsonify({'error': 'Invalid API Key'}), 401
-         
-    token = select_token()
-    if not token: # If no token, maybe we can't fetch models? Or just return default list.
+
+    start_time = time.time()
+
+    candidates = _get_token_candidates()
+    if not candidates: # If no token, maybe we can't fetch models? Or just return default list.
         # Fallback list
         return jsonify({
             "object": "list",
@@ -618,16 +834,54 @@ def proxy_models():
                 {"id": "gpt-3.5-turbo", "object": "model", "created": 1677610602, "owned_by": "openai"}
             ]
         })
-        
-    zai_url = "https://zai.is/api/v1/models"
-    headers = {
-        "Authorization": f"Bearer {token.zai_token}"
-    }
-    try:
-        resp = requests.get(zai_url, headers=headers)
+
+    max_attempts = max(1, int(getattr(config, 'error_retry_count', 1) or 1))
+    attempts = 0
+    last_response = None
+
+    for token in candidates:
+        if attempts >= max_attempts:
+            break
+        attempts += 1
+
+        zai_url = "https://zai.is/api/v1/models"
+        headers = {"Authorization": f"Bearer {token.zai_token}"}
+
+        try:
+            resp = requests.get(zai_url, headers=headers, timeout=60)
+        except Exception as e:
+            _mark_token_error(token, config, f"Request error: {e}")
+            last_response = jsonify({"error": "Failed to fetch models", "detail": str(e)})
+            last_response.status_code = 502
+            continue
+
+        duration = time.time() - start_time
+        log = RequestLog(
+            operation="models",
+            token_email=token.email,
+            discord_token=_mask_token(token.discord_token),
+            zai_token=_mask_token(token.zai_token),
+            status_code=resp.status_code,
+            duration=duration
+        )
+        db.session.add(log)
+        db.session.commit()
+
+        if resp.status_code >= 400:
+            try:
+                detail = resp.text
+            except Exception:
+                detail = ''
+            _mark_token_error(token, config, f"HTTP {resp.status_code}: {detail[:200]}")
+            last_response = Response(resp.content, status=resp.status_code, mimetype=resp.headers.get('Content-Type', 'application/json'))
+            continue
+
+        _mark_token_success(token)
         return Response(resp.content, status=resp.status_code, mimetype='application/json')
-    except:
-        return jsonify({"error": "Failed to fetch models"}), 500
+
+    if last_response is not None:
+        return last_response
+    return jsonify({"error": "Failed to fetch models"}), 500
 
 if __name__ == '__main__':
     init_db()

@@ -11,6 +11,7 @@ class SystemConfig(db.Model):
     debug_enabled = db.Column(db.Boolean, default=False)
     at_auto_refresh_enabled = db.Column(db.Boolean, default=True)
     token_refresh_interval = db.Column(db.Integer, default=3600)
+    stream_conversion_enabled = db.Column(db.Boolean, default=False)
     
     # Proxy Config
     proxy_enabled = db.Column(db.Boolean, default=False)
@@ -66,6 +67,8 @@ class RequestLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     operation = db.Column(db.String(64)) # e.g. "chat/completions", "refresh"
     token_email = db.Column(db.String(120), nullable=True)
+    discord_token = db.Column(db.Text, nullable=True)
+    zai_token = db.Column(db.Text, nullable=True)
     status_code = db.Column(db.Integer)
     duration = db.Column(db.Float)
     created_at = db.Column(db.DateTime, default=datetime.now)
