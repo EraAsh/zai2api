@@ -48,16 +48,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    deploy:
-      resources:
-        limits:
-          cpus: '4.0'
-          memory: 2G
-        reservations:
-          cpus: '1.0'
-          memory: 512M
 
 networks:
   zaibridge-network:
     driver: bridge
-    external: false

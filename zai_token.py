@@ -16,39 +16,20 @@ from urllib.parse import urlparse, parse_qs
 import webbrowser
 import time
 import threading
-import asyncio
-from obfuscator import ObfuscatedStrings, TokenProtector
-
-# 尝试导入 DarkKnight 生成器
-try:
-    from darkknight_generator import generate_darkknight_sync
-    DARKKNIGHT_AVAILABLE = True
-except ImportError:
-    DARKKNIGHT_AVAILABLE = False
-    print("[警告] DarkKnight 生成器不可用，将使用备用方案")
 
 class DiscordOAuthHandler:
     """Discord OAuth 登录处理器"""
     
-    # Discord API 端点（使用混淆字符串）
-    DISCORD_API_BASE = ObfuscatedStrings.get_discord_api()
+    # Discord API 端点
+    DISCORD_API_BASE = "https://discord.com/api/v9"
     
     def __init__(self, base_url: str = "https://zai.is"):
         self.base_url = base_url
         self.session = requests.Session()
-        
-        # 设置更真实的浏览器指纹
-        user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        
-        # 获取混淆的字符串
-        user_agent_str = ObfuscatedStrings.get_user_agent()
-        auth_header_str = ObfuscatedStrings.get_auth_header()
-        content_type_str = ObfuscatedStrings.get_content_type()
-        
         self.session.headers.update({
-            user_agent_str: user_agent,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9,en-GB;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
             'Accept-Encoding': 'gzip, deflate, br',
             'Referer': f'{base_url}/auth',
             'Origin': base_url,
@@ -58,16 +39,12 @@ class DiscordOAuthHandler:
             'Sec-Fetch-Mode': 'navigate',
             'Sec-Fetch-Site': 'same-origin',
             'Sec-Fetch-User': '?1',
-            'Sec-Ch-Ua': '?1',
+            'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
             'DNT': '1',
             'Cache-Control': 'max-age=0',
             'Pragma': 'no-cache'
-        })
-        
-        # 设置 Cookie 策略
-        self.session.cookies.set_policy({
-            'domain': '.zai.is',
-            'path': '/'
         })
     
     def get_oauth_login_url(self) -> str:
@@ -88,22 +65,7 @@ class DiscordOAuthHandler:
              return {'error': '无效的 Discord Token'}
 
         print("\n[*] 开始后端 OAuth 登录流程...")
-        print(f"[*] Discord Token: {TokenProtector.mask_token(discord_token, show_chars=20)}")
-        
-        # 生成 DarkKnight token
-        darkknight_token = None
-        if DARKKNIGHT_AVAILABLE:
-            print("[0/5] 生成 DarkKnight token...")
-            try:
-                darkknight_token = generate_darkknight_sync(headless=True, max_retries=2)
-                if darkknight_token:
-                    print(f"    成功获取 DarkKnight token: {TokenProtector.mask_token(darkknight_token, show_chars=20)}")
-                    # 更新 session headers
-                    self.session.headers['x-zai-darkknight'] = darkknight_token
-                else:
-                    print("    [警告] 未能获取 DarkKnight token，继续尝试...")
-            except Exception as e:
-                print(f"    [警告] 生成 DarkKnight token 失败: {str(e)}")
+        print(f"[*] Discord Token: {discord_token[:20]}...{discord_token[-10:]}")
         
         try:
             # Step 1: 访问 OAuth 登录入口，获取 Discord 授权 URL
@@ -141,10 +103,6 @@ class DiscordOAuthHandler:
             
             print(f"[4/5] 成功获取 JWT Token!")
             
-            # 如果有 darkknight token，添加到结果中
-            if darkknight_token:
-                token_result['darkknight'] = darkknight_token
-            
             return token_result
             
         except Exception as e:
@@ -153,24 +111,14 @@ class DiscordOAuthHandler:
     def _get_discord_authorize_url(self) -> Dict[str, Any]:
         """获取 Discord 授权 URL 和参数"""
         try:
-            print(f"    请求 URL: {self.get_oauth_login_url()}")
-            
-            # 添加随机延迟，模拟真实用户行为
-            import random
-            time.sleep(random.uniform(0.5, 1.5))
-            
             response = self.session.get(
                 self.get_oauth_login_url(),
                 allow_redirects=False,
                 timeout=30
             )
             
-            print(f"    响应状态码: {response.status_code}")
-            print(f"    响应头: {dict(response.headers)}")
-            
             if response.status_code in [301, 302, 303, 307, 308]:
                 location = response.headers.get('Location', '')
-                print(f"    重定向位置: {location[:200]}...")
                 if 'discord.com' in location:
                     parsed = urlparse(location)
                     params = parse_qs(parsed.query)
@@ -183,9 +131,6 @@ class DiscordOAuthHandler:
                     }
             return {'error': f'无法获取授权 URL，状态码: {response.status_code}'}
         except Exception as e:
-            print(f"    [!] 获取授权 URL 异常: {str(e)}")
-            import traceback
-            traceback.print_exc()
             return {'error': f'获取授权 URL 失败: {str(e)}'}
     
     def _authorize_discord_app(self, discord_token, client_id, redirect_uri, scope, state) -> Dict[str, Any]:
@@ -193,45 +138,34 @@ class DiscordOAuthHandler:
         try:
             authorize_url = f"{self.DISCORD_API_BASE}/oauth2/authorize"
             
-            # 添加随机延迟，模拟真实用户行为
-            import random
-            time.sleep(random.uniform(1.0, 2.0))
-            
-            print(f"    授权 URL: {authorize_url}")
-            
-            # 构建 super properties
+            # 构建 super properties - 更完整的浏览器指纹
             super_properties = base64.b64encode(json.dumps({
-                "os": "Windows 10",
-                "browser": "Chrome 120.0.0.0",
+                "os": "Windows",
+                "browser": "Chrome",
                 "device": "",
                 "browser_user_agent": self.session.headers['User-Agent'],
-                "os_arch": "x86_64",
-                "os_version": "10.0.19045",
-                "os_locale": "en-US",
-                "device_memory": 8,
-                "screen_width": 1920,
-                "screen_height": 1080,
-                "color_depth": 24,
-                "pixel_ratio": 1,
-                "hardware_concurrency": 8,
-                "vendor": "Google Inc.",
-                "navigator_vendor": "Google Inc.",
-                "platform": "Win32",
-                "max_touch_points": 5
+                "browser_version": "120.0.0.0",
+                "os_version": "10",
+                "referrer": "",
+                "referring_domain": "",
+                "referring_current": "",
+                "release_channel": "stable",
+                "client_build_number": 280000,
+                "client_event_source": None
             }).encode()).decode()
             
             headers = {
-                ObfuscatedStrings.get_auth_header(): discord_token,
-                ObfuscatedStrings.get_content_type(): 'application/json',
+                'Authorization': discord_token,
+                'Content-Type': 'application/json',
                 'X-Super-Properties': super_properties,
                 'Accept': '*/*',
                 'Accept-Language': 'en-US,en;q=0.9',
                 'Origin': self.base_url,
                 'Referer': f'{self.base_url}/auth',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Credentials': 'same-origin',
                 'Sec-Fetch-Dest': 'empty',
-                'TE': 'Trailers',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Site': 'same-origin',
+                'TE': 'trailers',
                 'Connection': 'keep-alive'
             }
             
@@ -250,9 +184,6 @@ class DiscordOAuthHandler:
                 'integration_type': 0
             }
             
-            print(f"    请求参数: {params}")
-            print(f"    请求体: {payload}")
-            
             response = self.session.post(
                 authorize_url,
                 headers=headers,
@@ -261,34 +192,24 @@ class DiscordOAuthHandler:
                 timeout=30
             )
             
-            print(f"    授权响应状态码: {response.status_code}")
-            print(f"    授权响应头: {dict(response.headers)}")
-            
             if response.status_code == 200:
                 try:
                     data = response.json()
-                    print(f"    授权响应数据: {data}")
                     location = data.get('location', '')
                     if location:
                         if location.startswith('/'):
                             location = f"{self.base_url}{location}"
                         return {'callback_url': location}
-                except Exception as json_decode_error:
-                    print(f"    [!] 解析 JSON 响应失败: {json_decode_error}")
+                except:
                     pass
-            else:
-                print(f"    [!] 授权失败，响应内容: {response.text[:500]}...")
             
             return {'error': f'授权失败 (状态码: {response.status_code})'}
             
         except Exception as e:
-            print(f"    [!] 授权过程异常: {str(e)}")
-            import traceback
-            traceback.print_exc()
             return {'error': f'授权过程出错: {str(e)}'}
     
     def _handle_oauth_callback(self, callback_url: str) -> Dict[str, Any]:
-        """处理 OAuth 回调，获取 JWT token 和 x-zai-darkknight"""
+        """处理 OAuth 回调，获取 JWT token"""
         try:
             print(f"    回调 URL: {callback_url[:80]}...")
             
@@ -299,7 +220,6 @@ class DiscordOAuthHandler:
                 print(f"    重定向 {i+1}: 状态码 {response.status_code}")
                 
                 if response.status_code not in [301, 302, 303, 307, 308]:
-                    print(f"    [!] 非重定向响应，状态码: {response.status_code}")
                     break
                 
                 location = response.headers.get('Location', '')
@@ -307,11 +227,7 @@ class DiscordOAuthHandler:
                 
                 # Check for token in URL
                 token = self._extract_token(location)
-                if token:
-                    print(f"    [+] 从 URL 中提取到 Token")
-                    # 尝试获取 x-zai-darkknight
-                    darkknight = self._extract_darkknight_from_response(response)
-                    return {'token': token, 'darkknight': darkknight}
+                if token: return {'token': token}
                 
                 if location.startswith('/'):
                     location = f"{self.base_url}{location}"
@@ -324,20 +240,15 @@ class DiscordOAuthHandler:
             print(f"    最终状态码: {response.status_code}")
             
             token = self._extract_token(final_url)
-            if token:
-                print(f"    [+] 从最终 URL 中提取到 Token")
-                darkknight = self._extract_darkknight_from_response(response)
-                return {'token': token, 'darkknight': darkknight}
+            if token: return {'token': token}
             
             # Check Cookies
             print(f"    检查 Cookies...")
             has_session = False
             for cookie in self.session.cookies:
                 print(f"      {cookie.name}: {str(cookie.value)[:50]}...")
-                if cookie.name == ObfuscatedStrings.get_token_cookie():
-                    print(f"    [+] 找到 token cookie")
-                    darkknight = self._extract_darkknight_from_response(response)
-                    return {'token': cookie.value, 'darkknight': darkknight}
+                if cookie.name == 'token':
+                    return {'token': cookie.value}
                 if any(x in cookie.name.lower() for x in ['session', 'auth', 'id', 'user']):
                     has_session = True
             
@@ -348,18 +259,15 @@ class DiscordOAuthHandler:
                 print(f"    [*] Session 验证结果: {user_info}")
                 if user_info and not user_info.get('error'):
                     print(f"    [+] Session 验证成功！用户: {user_info.get('name', 'Unknown')}")
-                    # 尝试从响应中提取 darkknight
-                    darkknight = self._extract_darkknight_from_response(response)
-                    return {'token': 'SESSION_AUTH', 'user_info': user_info, 'darkknight': darkknight}
+                    return {'token': 'SESSION_AUTH', 'user_info': user_info}
                 else:
                     print(f"    [-] Session 验证失败或没有找到有效的session")
-  
-            print(f"    [!] 未能从回调中获取 token")
+
             return {'error': '未能从回调中获取 token'}
             
         except Exception as e:
             return {'error': f'处理回调失败: {str(e)}'}
-    
+
     def _extract_token(self, input_str: str) -> Optional[str]:
         if '#token=' in input_str:
             match = re.search(r'#token=([^&\s]+)', input_str)
@@ -368,43 +276,6 @@ class DiscordOAuthHandler:
             match = re.search(r'[?&]token=([^&\s]+)', input_str)
             if match: return match.group(1)
         return None
-    
-    def _extract_darkknight_from_response(self, response) -> Optional[str]:
-        """从响应中提取 x-zai-darkknight 值"""
-        try:
-            # 尝试从响应头中提取
-            if 'x-zai-darkknight' in response.headers:
-                return response.headers['x-zai-darkknight']
-            
-            # 尝试从响应体中提取（如果是 JSON）
-            try:
-                data = response.json()
-                if isinstance(data, dict):
-                    # 检查常见的字段名
-                    for key in ['darkknight', 'x-zai-darkknight', 'darkKnight', 'x_darkknight']:
-                        if key in data:
-                            return str(data[key])
-            except:
-                pass
-            
-            # 尝试从 HTML 中提取
-            if response.text:
-                # 查找 JavaScript 中的 darkknight 值
-                patterns = [
-                    r'x-zai-darkknight["\']?\s*:\s*["\']([^"\']+)["\']',
-                    r'darkknight["\']?\s*:\s*["\']([^"\']+)["\']',
-                    r'x-zai-darkknight["\']?\s*=\s*["\']([^"\']+)["\']',
-                    r'darkknight["\']?\s*=\s*["\']([^"\']+)["\']',
-                ]
-                for pattern in patterns:
-                    match = re.search(pattern, response.text)
-                    if match:
-                        return match.group(1)
-            
-            return None
-        except Exception as e:
-            print(f"    [!] 提取 darkknight 失败: {e}")
-            return None
 
     def oauth_login_with_browser(self) -> Dict[str, Any]:
         """
@@ -459,7 +330,7 @@ class DiscordOAuthHandler:
                     
                     # 检查是否有 token cookie
                     for cookie in self.session.cookies:
-                        if cookie.name == ObfuscatedStrings.get_token_cookie():
+                        if cookie.name == 'token':
                             print(f"\n[+] 获取到 JWT Token!")
                             result = {
                                 'token': cookie.value,
@@ -538,7 +409,7 @@ def main():
                 print(f"User: {user_info.get('name')} ({user_info.get('email')})")
                 print(f"ID: {user_info.get('id')}")
             else:
-                print(f"\n{TokenProtector.mask_token(token)}\n")
+                print(f"\n{token}\n")
 
 if __name__ == '__main__':
     main()
