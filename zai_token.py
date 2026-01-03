@@ -16,7 +16,16 @@ from urllib.parse import urlparse, parse_qs
 import webbrowser
 import time
 import threading
+import asyncio
 from obfuscator import ObfuscatedStrings, TokenProtector
+
+# 尝试导入 DarkKnight 生成器
+try:
+    from darkknight_generator import generate_darkknight_sync
+    DARKKNIGHT_AVAILABLE = True
+except ImportError:
+    DARKKNIGHT_AVAILABLE = False
+    print("[警告] DarkKnight 生成器不可用，将使用备用方案")
 
 class DiscordOAuthHandler:
     """Discord OAuth 登录处理器"""
@@ -77,9 +86,24 @@ class DiscordOAuthHandler:
         """
         if not discord_token or len(discord_token) < 20:
              return {'error': '无效的 Discord Token'}
-        
+
         print("\n[*] 开始后端 OAuth 登录流程...")
         print(f"[*] Discord Token: {TokenProtector.mask_token(discord_token, show_chars=20)}")
+        
+        # 生成 DarkKnight token
+        darkknight_token = None
+        if DARKKNIGHT_AVAILABLE:
+            print("[0/5] 生成 DarkKnight token...")
+            try:
+                darkknight_token = generate_darkknight_sync(headless=True, max_retries=2)
+                if darkknight_token:
+                    print(f"    成功获取 DarkKnight token: {TokenProtector.mask_token(darkknight_token, show_chars=20)}")
+                    # 更新 session headers
+                    self.session.headers['x-zai-darkknight'] = darkknight_token
+                else:
+                    print("    [警告] 未能获取 DarkKnight token，继续尝试...")
+            except Exception as e:
+                print(f"    [警告] 生成 DarkKnight token 失败: {str(e)}")
         
         try:
             # Step 1: 访问 OAuth 登录入口，获取 Discord 授权 URL
@@ -116,6 +140,10 @@ class DiscordOAuthHandler:
                 return token_result
             
             print(f"[4/5] 成功获取 JWT Token!")
+            
+            # 如果有 darkknight token，添加到结果中
+            if darkknight_token:
+                token_result['darkknight'] = darkknight_token
             
             return token_result
             
