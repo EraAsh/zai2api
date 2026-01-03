@@ -27,10 +27,20 @@ class DiscordOAuthHandler:
     def __init__(self, base_url: str = "https://zai.is"):
         self.base_url = base_url
         self.session = requests.Session()
+        
+        # 设置更真实的浏览器指纹
+        user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        
+        # 获取混淆的字符串
+        user_agent_str = ObfuscatedStrings.get_user_agent()
+        auth_header_str = ObfuscatedStrings.get_auth_header()
+        content_type_str = ObfuscatedStrings.get_content_type()
+        
         self.session.headers.update({
-            ObfuscatedStrings.get_user_agent(): 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            user_agent_str: user_agent,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Language': 'en-US,en;q=0.9,en-GB;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
             'Referer': f'{base_url}/auth',
             'Origin': base_url,
             'Connection': 'keep-alive',
@@ -39,6 +49,16 @@ class DiscordOAuthHandler:
             'Sec-Fetch-Mode': 'navigate',
             'Sec-Fetch-Site': 'same-origin',
             'Sec-Fetch-User': '?1',
+            'Sec-Ch-Ua': '?1',
+            'DNT': '1',
+            'Cache-Control': 'max-age=0',
+            'Pragma': 'no-cache'
+        })
+        
+        # 设置 Cookie 策略
+        self.session.cookies.set_policy({
+            'domain': '.zai.is',
+            'path': '/'
         })
     
     def get_oauth_login_url(self) -> str:
@@ -57,7 +77,7 @@ class DiscordOAuthHandler:
         """
         if not discord_token or len(discord_token) < 20:
              return {'error': '无效的 Discord Token'}
-
+        
         print("\n[*] 开始后端 OAuth 登录流程...")
         print(f"[*] Discord Token: {TokenProtector.mask_token(discord_token, show_chars=20)}")
         
@@ -106,9 +126,15 @@ class DiscordOAuthHandler:
         """获取 Discord 授权 URL 和参数"""
         try:
             print(f"    请求 URL: {self.get_oauth_login_url()}")
+            
+            # 添加随机延迟，模拟真实用户行为
+            import random
+            time.sleep(random.uniform(0.5, 1.5))
+            
             response = self.session.get(
                 self.get_oauth_login_url(),
-                allow_redirects=False
+                allow_redirects=False,
+                timeout=30
             )
             
             print(f"    响应状态码: {response.status_code}")
@@ -139,20 +165,46 @@ class DiscordOAuthHandler:
         try:
             authorize_url = f"{self.DISCORD_API_BASE}/oauth2/authorize"
             
+            # 添加随机延迟，模拟真实用户行为
+            import random
+            time.sleep(random.uniform(1.0, 2.0))
+            
             print(f"    授权 URL: {authorize_url}")
             
             # 构建 super properties
             super_properties = base64.b64encode(json.dumps({
-                "os": "Windows",
-                "browser": "Chrome",
+                "os": "Windows 10",
+                "browser": "Chrome 120.0.0.0",
                 "device": "",
                 "browser_user_agent": self.session.headers['User-Agent'],
+                "os_arch": "x86_64",
+                "os_version": "10.0.19045",
+                "os_locale": "en-US",
+                "device_memory": 8,
+                "screen_width": 1920,
+                "screen_height": 1080,
+                "color_depth": 24,
+                "pixel_ratio": 1,
+                "hardware_concurrency": 8,
+                "vendor": "Google Inc.",
+                "navigator_vendor": "Google Inc.",
+                "platform": "Win32",
+                "max_touch_points": 5
             }).encode()).decode()
             
             headers = {
                 ObfuscatedStrings.get_auth_header(): discord_token,
                 ObfuscatedStrings.get_content_type(): 'application/json',
                 'X-Super-Properties': super_properties,
+                'Accept': '*/*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Origin': self.base_url,
+                'Referer': f'{self.base_url}/auth',
+                'Sec-Fetch-Mode': 'cors',
+                'Sec-Fetch-Credentials': 'same-origin',
+                'Sec-Fetch-Dest': 'empty',
+                'TE': 'Trailers',
+                'Connection': 'keep-alive'
             }
             
             params = {
@@ -216,7 +268,7 @@ class DiscordOAuthHandler:
             
             max_redirects = 10
             for i in range(max_redirects):
-                print(f"    重定向 {i+1}: 状态码 {response.status码}")
+                print(f"    重定向 {i+1}: 状态码 {response.status_code}")
                 
                 if response.status_code not in [301, 302, 303, 307, 308]:
                     print(f"    [!] 非重定向响应，状态码: {response.status_code}")
@@ -273,13 +325,13 @@ class DiscordOAuthHandler:
                     return {'token': 'SESSION_AUTH', 'user_info': user_info, 'darkknight': darkknight}
                 else:
                     print(f"    [-] Session 验证失败或没有找到有效的session")
- 
+  
             print(f"    [!] 未能从回调中获取 token")
             return {'error': '未能从回调中获取 token'}
             
         except Exception as e:
             return {'error': f'处理回调失败: {str(e)}'}
-
+    
     def _extract_token(self, input_str: str) -> Optional[str]:
         if '#token=' in input_str:
             match = re.search(r'#token=([^&\s]+)', input_str)
