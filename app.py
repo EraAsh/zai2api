@@ -198,19 +198,38 @@ def index():
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
-    data = request.json
-    username = data.get('username')
-    password = data.get('password')
-    
-    config = SystemConfig.query.first()
-    if config and config.admin_username == username and check_password_hash(config.admin_password_hash, password):
-        user = User(id=str(config.id), username=config.admin_username)
-        login_user(user)
-        import jwt
-        token = jwt.encode({'user_id': str(config.id), 'exp': datetime.utcnow().timestamp() + 86400}, app.config['SECRET_KEY'], algorithm='HS256')
-        return jsonify({'success': True, 'token': token})
-    
-    return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
+    try:
+        data = request.json
+        username = data.get('username')
+        password = data.get('password')
+        
+        logger.info(f"Login attempt for user: {username}")
+        logger.info(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
+        
+        # Test database connection
+        try:
+            db.session.execute(db.text("SELECT 1"))
+            logger.info("Database connection test successful")
+        except Exception as db_error:
+            logger.error(f"Database connection test failed: {db_error}")
+            return jsonify({'success': False, 'message': 'Database connection error'}), 500
+        
+        config = SystemConfig.query.first()
+        logger.info(f"Config query result: {config}")
+        
+        if config and config.admin_username == username and check_password_hash(config.admin_password_hash, password):
+            user = User(id=str(config.id), username=config.admin_username)
+            login_user(user)
+            import jwt
+            token = jwt.encode({'user_id': str(config.id), 'exp': datetime.utcnow().timestamp() + 86400}, app.config['SECRET_KEY'], algorithm='HS256')
+            logger.info(f"Login successful for user: {username}")
+            return jsonify({'success': True, 'token': token})
+        
+        logger.warning(f"Login failed for user: {username}")
+        return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
+    except Exception as e:
+        logger.error(f"Login error: {str(e)}", exc_info=True)
+        return jsonify({'success': False, 'message': f'Server error: {str(e)}'}), 500
 
 # Middleware for Bearer Token Auth
 def check_auth_token():
