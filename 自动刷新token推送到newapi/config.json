@@ -1,16 +1,15 @@
 {
   "discord_tokens": [
-    "discord_token1",
-    "discord_token2"
+    "your_discord_token_1",
+    "your_discord_token_2"
   ],
   "discord_token_file": "discord_tokens.txt",
   "zai_url": "https://zai.is",
-  "newapi_base": "https://aaa.aaa.cn",
-  "newapi_key": "aaa",
-  "system_token": "aaa",
+  "newapi_base": "https://your-newapi-url.com",
+  "newapi_key": "your-newapi-key",
+  "system_token": "your-system-token",
   "newapi_user_id": "1",
   "newapi_channel_id": "1",
   "expires_in": 3600,
   "update_interval": 3600
 }
-

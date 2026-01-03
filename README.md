@@ -16,7 +16,7 @@ ZaiBridge 是一个功能完整的 OpenAI 兼容 API 服务网关。它允许你
 
 ## 轻量化版本
 
-如果你只需要“自动刷新 Discord Token 并推送到NewAPI”这一精简能力，可以使用仓库内的 `自动刷新token推送到newapi` 目录：
+如果你只需要"自动刷新 Discord Token 并推送到NewAPI"这一精简能力，可以使用仓库内的 `自动刷新token推送到newapi` 目录：
 
 - `自动刷新token推送到newapi` 为轻量化版本，专注于 Token 自动刷新与推送，适合资源受限或仅需 Token 分发的场景；
 
@@ -71,7 +71,7 @@ ZaiBridge 是一个功能完整的 OpenAI 兼容 API 服务网关。它允许你
 3. 在项目根目录下运行：
 
 ```bash
-git clone https://github.com/EraAsh/zai2api.git && cd zai2api
+git clone https://github.com/EraAsh/ZaiBridge.git && cd ZaiBridge
 ```
 
 ```bash
@@ -108,11 +108,11 @@ python app.py
 ## 管理面板功能
 
 1. **Token 管理**：
-    - 点击“新增 Token”输入 Discord Token。
+    - 点击"新增 Token"输入 Discord Token。
     - 系统会自动尝试获取 Zai Token。
-    - 点击“一键刷新 ZaiToken”可强制刷新所有 Token。
+    - 点击"一键刷新 ZaiToken"可强制刷新所有 Token。
 2. **系统配置**：
-    - 调整“错误封禁阈值”和“错误重试次数”以优化稳定性。
+    - 调整"错误封禁阈值"和"错误重试次数"以优化稳定性。
     - 调整 Token 刷新间隔。
 3. **请求日志**：
     - 查看最近的 API 请求记录。
@@ -176,7 +176,7 @@ A: 建议：
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=EraAsh/zai2api&type=date&legend=top-left)](https://www.star-history.com/#EraAsh/zai2api&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=EraAsh/ZaiBridge&type=date&legend=top-left)](https://www.star-history.com/#EraAsh/ZaiBridge&type=date&legend=top-left)
 
 ## 免责声明
 
