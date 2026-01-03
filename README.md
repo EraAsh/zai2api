@@ -176,7 +176,7 @@ A: 建议：
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=Futureppo/zai.is2api&type=date&legend=top-left)](https://www.star-history.com/#Futureppo/zai.is2api&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=EraAsh/zai2api&type=date&legend=top-left)](https://www.star-history.com/#EraAsh/zai2api&type=date&legend=top-left)
 
 ## 免责声明
 
