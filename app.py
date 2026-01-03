@@ -131,30 +131,45 @@ def _dt_iso(dt):
     return dt.replace(microsecond=0).isoformat() if dt else None
 
 # Database Initialization
-def init_db():
-    with app.app_context():
-        db.create_all()
-        # Make sure old sqlite DBs get new columns before ORM queries start
-        migrate_sqlite_schema()
-        db.create_all()
-        config = SystemConfig.query.first()
-        if not config:
-            # Default Admin: admin / admin
-            # Use pbkdf2:sha256 which is default in generate_password_hash
-            config = SystemConfig(
-                admin_username='admin',
-                admin_password_hash=generate_password_hash('admin')
-            )
-            db.session.add(config)
-            db.session.commit()
-            print("Initialized default admin/admin")
+_db_initialized = False
+_db_init_lock = Lock()
 
-        # Ensure scheduler interval reflects persisted config (survives restart)
+def init_db():
+    global _db_initialized
+    with _db_init_lock:
+        if _db_initialized:
+            return
+        
         try:
-            seconds = int(getattr(config, 'token_refresh_interval', 3600) or 3600)
-            scheduler.reschedule_job('token_refresher', trigger='interval', seconds=seconds)
+            with app.app_context():
+                db.create_all()
+                # Make sure old sqlite DBs get new columns before ORM queries start
+                migrate_sqlite_schema()
+                db.create_all()
+                config = SystemConfig.query.first()
+                if not config:
+                    # Default Admin: admin / admin
+                    # Use pbkdf2:sha256 which is default in generate_password_hash
+                    config = SystemConfig(
+                        admin_username='admin',
+                        admin_password_hash=generate_password_hash('admin')
+                    )
+                    db.session.add(config)
+                    db.session.commit()
+                    print("Initialized default admin/admin")
+
+                # Ensure scheduler interval reflects persisted config (survives restart)
+                try:
+                    seconds = int(getattr(config, 'token_refresh_interval', 3600) or 3600)
+                    scheduler.reschedule_job('token_refresher', trigger='interval', seconds=seconds)
+                except Exception as e:
+                    logger.error(f"Failed to apply token_refresh_interval on startup: {e}")
+                
+                _db_initialized = True
+                logger.info("Database initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to apply token_refresh_interval on startup: {e}")
+            logger.error(f"Failed to initialize database: {e}")
+            raise
 
 # Scheduler
 def scheduled_refresh():
