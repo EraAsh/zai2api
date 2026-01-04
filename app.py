@@ -407,6 +407,34 @@ def refresh_all_tokens_endpoint():
         logger.error(f"Manual refresh failed: {e}")
         return jsonify({'success': False, 'message': str(e)})
 
+@app.route('/api/tokens/<int:id>/refresh', methods=['POST'])
+@api_auth_required
+def refresh_token_endpoint(id):
+    """刷新单个 Token 并记录日志"""
+    try:
+        token = Token.query.get_or_404(id)
+        success, msg = services.update_token_info(id)
+        
+        # 记录刷新操作日志
+        log = RequestLog(
+            operation="token_refresh",
+            token_email=token.email,
+            discord_token=_mask_token(token.discord_token),
+            zai_token=_mask_token(token.zai_token),
+            status_code=200 if success else 500,
+            duration=0
+        )
+        db.session.add(log)
+        db.session.commit()
+        
+        if success:
+            return jsonify({'success': True, 'message': 'Token 刷新成功'})
+        else:
+            return jsonify({'success': False, 'message': msg})
+    except Exception as e:
+        logger.error(f"Token refresh failed: {e}")
+        return jsonify({'success': False, 'message': str(e)})
+
 @app.route('/api/tokens/<int:id>/refresh-at', methods=['POST'])
 @api_auth_required
 def refresh_token_at(id):
