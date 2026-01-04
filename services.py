@@ -41,6 +41,21 @@ def update_token_info(token_id, use_oauth=False, skip_darkknight=False):
     if 'error' in result:
         token.error_count += 1
         token.remark = f"Refresh failed: {result['error']}"
+        
+        # 记录失败日志
+        try:
+            log = RequestLog(
+                operation="token_update_failed",
+                token_email=token.email,
+                discord_token=(token.discord_token[:10] + '...') if token.discord_token else None,
+                status_code=400,
+                duration=0,
+                created_at=datetime.now()
+            )
+            db.session.add(log)
+        except Exception as e:
+            logger.error(f"Failed to create fail log: {e}")
+            
         db.session.commit()
         return False, result['error']
 
@@ -48,6 +63,22 @@ def update_token_info(token_id, use_oauth=False, skip_darkknight=False):
     darkknight = result.get('darkknight')
     user_info = result.get('user_info', {})
     
+    # 记录操作日志
+    try:
+        log = RequestLog(
+            operation="token_update",
+            token_email=user_info.get('email') or token.email,
+            discord_token=(token.discord_token[:10] + '...') if token.discord_token else None,
+            zai_token=(at[:10] + '...') if at else None,
+            status_code=200 if not 'error' in result else 400,
+            duration=0, # 可以在此处添加计时逻辑
+            created_at=datetime.now()
+        )
+        db.session.add(log)
+        # 注意：这里不提交，等待函数末尾统一提交，或者单独提交
+    except Exception as e:
+        logger.error(f"Failed to create request log: {e}")
+
     if at == 'SESSION_AUTH':
          token.email = user_info.get('email') or user_info.get('name') or token.email
          token.is_active = True

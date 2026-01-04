@@ -72,10 +72,10 @@
                     <table class="w-full text-sm text-left">
                         <thead class="bg-muted/50 text-muted-foreground font-medium border-b border-border">
                             <tr>
-                                <th class="h-10 px-4 align-middle">discordtoken</th>
+                                <th class="h-10 px-4 align-middle">Discord Token</th>
                                 <th class="h-10 px-4 align-middle">状态</th>
-                                <th class="h-10 px-4 align-middle">zaitoken</th>
-                                <th class="h-10 px-4 align-middle">darkknight</th>
+                                <th class="h-10 px-4 align-middle">Zai Token</th>
+                                <th class="h-10 px-4 align-middle">Darkknight</th>
                                 <th class="h-10 px-4 align-middle">剩余刷新时间</th>
                                 <th class="h-10 px-4 align-middle">错误</th>
                                 <th class="h-10 px-4 align-middle">刷新状态 <small class="text-muted-foreground">(悬停查看完整内容)</small></th>
@@ -176,8 +176,8 @@
                     <table class="w-full text-sm text-left">
                         <thead class="bg-muted/50 text-muted-foreground font-medium border-b border-border">
                             <tr>
-                                <th class="h-10 px-4 align-middle">discordtoken</th>
-                                <th class="h-10 px-4 align-middle">zaitoken</th>
+                                <th class="h-10 px-4 align-middle">Discord Token</th>
+                                <th class="h-10 px-4 align-middle">Zai Token</th>
                                 <th class="h-10 px-4 align-middle">状态码</th>
                                 <th class="h-10 px-4 align-middle">耗时(秒)</th>
                                 <th class="h-10 px-4 align-middle">时间</th>
@@ -556,8 +556,8 @@
             const tbody = document.getElementById('logs-table-body');
             tbody.innerHTML = logs.map(l => `
                 <tr>
-                    <td class="px-4 py-2 text-xs font-mono max-w-[150px truncate" title="${l.discord_token || 'None'}">${l.discord_token ? l.discord_token.substring(0, 20) + '...' : '-'}</td>
-                    <td class="px-4 py-2 text-xs font-mono max-w-[150px truncate" title="${l.zai_token || 'None'}">${l.zai_token ? l.zai_token.substring(0, 20) + '...' : '-'}</td>
+                    <td class="px-4 py-2 text-xs font-mono max-w-[150px] truncate" title="${l.discord_token || 'None'}">${l.discord_token || '-'}</td>
+                    <td class="px-4 py-2 text-xs font-mono max-w-[150px] truncate" title="${l.zai_token || 'None'}">${l.zai_token || '-'}</td>
                     <td class="px-4 py-2 text-xs">${l.status_code}</td>
                     <td class="px-4 py-2 text-xs">${l.duration ? l.duration.toFixed(2) : '-'}</td>
                     <td class="px-4 py-2 text-xs">${new Date(l.created_at).toLocaleString()}</td>
